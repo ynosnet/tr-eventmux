@@ -1,0 +1,10 @@
+[Unit]
+Description=Refresh TR-EventMux every 2 minutes
+
+[Timer]
+OnBootSec=30
+OnUnitActiveSec=2min
+Unit=tr-eventmux-refresh.service
+
+[Install]
+WantedBy=timers.target
