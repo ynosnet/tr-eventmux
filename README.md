@@ -149,6 +149,12 @@ Wichtige Schlüssel:
 | `xmltv_output_path` | lokale XMLTV-Datei; leer deaktiviert die Dateiausgabe |
 | `priority_keywords` | Treffer bei Slot-Knappheit bevorzugen |
 | `exclude_keywords` | passende Events ignorieren |
+| `stream_engine` | `ffmpeg` oder `streamlink_drm`; kann pro Quelle überschrieben werden |
+| `streamlink_drm` | Pfad zum Streamlink-DRM-Befehl, im Docker-Image `/usr/local/bin/streamlink-drm` |
+| `streamlink_stream` | Stream-Auswahl für Streamlink, meist `best` |
+| `streamlink_extra_args` | zusätzliche Streamlink-Argumente vor URL und Stream-Auswahl |
+| `streamlink_key_mode` | Key-Auswahl für Streamlink-DRM: `all`, `first`, `second` oder `reverse` |
+| `streamlink_reverse_keys` | dreht bei Streamlink-DRM die Provider-Key-Reihenfolge, wenn nur eine Spur sauber entschlüsselt wird |
 | `ffmpeg_extra_input_args` | zusätzliche ffmpeg-Argumente vor `-i` |
 | `ffmpeg_extra_output_args` | zusätzliche ffmpeg-Argumente vor der MPEG-TS-Ausgabe |
 
@@ -312,6 +318,33 @@ Für reproduzierbare Builds können Release oder Asset-URL gesetzt werden:
 FFMPEG_MULTIKEY_VERSION=n7.1 docker compose build
 FFMPEG_MULTIKEY_ASSET_URL=https://github.com/DEvmIb/ffmpeg-multikey/releases/download/<tag>/<asset>.tar.xz docker compose build
 ```
+
+## streamlink-drm
+
+Der Docker-Build installiert zusaetzlich den ClearKey-faehigen
+`streamlink-drm`-Fork und legt ihn im Container hier ab:
+
+```text
+/usr/local/bin/streamlink-drm
+```
+
+Das Paket stellt intern den normalen `streamlink`-Befehl bereit; der Build legt
+`streamlink-drm` als stabilen Alias an. Repo und Ref koennen fuer Tests gepinnt
+werden:
+
+```bash
+STREAMLINK_DRM_REF=<commit-oder-tag> docker compose build
+STREAMLINK_DRM_REPO=ImAleeexx/streamlink-drm STREAMLINK_DRM_REF=master docker compose build
+```
+
+Der verwendete Fork registriert seine ClearKey-Optionen mit einem einfachen
+Bindestrich (`-decryption_key`, `-decryption_key_2`). TR-EventMux extrahiert
+dafuer aus Provider-Antworten im Format `kid=key:kid=key` nur die jeweiligen
+Key-Werte und uebergibt diese an Streamlink-DRM. Wenn nur Bild oder nur Ton
+sauber entschluesselt wird, kann pro Quelle `streamlink_reverse_keys: true`
+oder gezielter `streamlink_key_mode: "first"` beziehungsweise `"second"`
+gesetzt werden. Bei `first` wird nur `-decryption_key` uebergeben; der Fork
+verwendet diesen Key dann intern fuer beide ffmpeg-Eingaben.
 
 ## Troubleshooting
 

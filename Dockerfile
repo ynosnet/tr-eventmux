@@ -8,18 +8,30 @@ ARG TARGETVARIANT
 ARG FFMPEG_MULTIKEY_REPO=DEvmIb/ffmpeg-multikey
 ARG FFMPEG_MULTIKEY_VERSION=latest
 ARG FFMPEG_MULTIKEY_ASSET_URL=
+ARG STREAMLINK_DRM_REPO=ImAleeexx/streamlink-drm
+ARG STREAMLINK_DRM_REF=master
 
 ENV PYTHONDONTWRITEBYTECODE=1 \
     PYTHONUNBUFFERED=1 \
     TVH_EVENTS_CONFIG=/config/config.yaml \
     TVH_EVENTS_STATE=/data/state.json \
-    FFMPEG_PATH=/opt/ffmpeg/ffmpeg
+    FFMPEG_PATH=/opt/ffmpeg/ffmpeg \
+    STREAMLINK_DRM_PATH=/usr/local/bin/streamlink-drm
 
-RUN apk add --no-cache ca-certificates curl tzdata
+RUN apk add --no-cache ca-certificates curl git tzdata
 
 WORKDIR /app
 COPY requirements.txt /app/requirements.txt
 RUN pip install --no-cache-dir -r /app/requirements.txt
+
+# Install the ClearKey-capable Streamlink fork for experimental DASH handling.
+# The package exposes the usual "streamlink" command; keep a stable
+# "streamlink-drm" alias for configuration and debugging.
+RUN python -m pip install --no-cache-dir \
+      "git+https://github.com/${STREAMLINK_DRM_REPO}.git@${STREAMLINK_DRM_REF}" \
+    && ln -sf /usr/local/bin/streamlink /usr/local/bin/streamlink-drm \
+    && streamlink-drm --version \
+    && streamlink-drm --help | grep -q -- "-decryption_key"
 
 COPY tools/install_ffmpeg_multikey.py /app/tools/install_ffmpeg_multikey.py
 

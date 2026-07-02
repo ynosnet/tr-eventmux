@@ -137,6 +137,12 @@ DEFAULTS: dict[str, Any] = {
     "date_format": "auto",
     "priority_keywords": [],
     "exclude_keywords": [],
+    "stream_engine": "ffmpeg",
+    "streamlink_drm": os.environ.get("STREAMLINK_DRM_PATH", "/usr/local/bin/streamlink-drm"),
+    "streamlink_stream": "best",
+    "streamlink_extra_args": [],
+    "streamlink_key_mode": "all",
+    "streamlink_reverse_keys": False,
     "ffmpeg": os.environ.get("FFMPEG_PATH", "/usr/bin/ffmpeg"),
     "ffmpeg_base_args": [
         "-hide_banner",
@@ -3120,7 +3126,13 @@ def mask_ffmpeg_command(command: list[str]) -> list[str]:
             hide_next = False
             continue
         masked.append(value)
-        if value == "-cenc_decryption_keys":
+        if value in {
+            "-cenc_decryption_keys",
+            "-decryption_key",
+            "-decryption_key_2",
+            "--decryption_key",
+            "--decryption_key_2",
+        }:
             hide_next = True
     return masked
 
@@ -3139,6 +3151,61 @@ def config_arg_list(cfg: dict[str, Any], key: str) -> list[str]:
                 f"Ungueltige ffmpeg-Konfiguration {key}: {exc}"
             ) from exc
     raise RuntimeError(f"ffmpeg-Konfiguration {key} muss Liste oder String sein")
+
+
+def stream_engine(cfg: dict[str, Any]) -> str:
+    value = str(cfg.get("stream_engine") or "ffmpeg").strip().casefold()
+    if value in {"streamlink", "streamlink_drm", "streamlink-drm"}:
+        return "streamlink_drm"
+    return "ffmpeg"
+
+
+def streamlink_drm_key_args(decryption_keys: str) -> list[str]:
+    return [key.lower() for _kid, key in HEX_PAIR_RE.findall(decryption_keys)]
+
+
+def config_bool(cfg: dict[str, Any], key: str, default: bool = False) -> bool:
+    value = cfg.get(key, default)
+    if isinstance(value, str):
+        return value.strip().casefold() in {"1", "true", "yes", "on"}
+    return bool(value)
+
+
+def streamlink_drm_select_keys(key_args: list[str], cfg: dict[str, Any]) -> list[str]:
+    mode = str(cfg.get("streamlink_key_mode") or "all").strip().casefold()
+    if mode in {"first", "single", "single_first"}:
+        return key_args[:1]
+    if mode in {"second", "single_second"}:
+        return key_args[1:2] if len(key_args) > 1 else key_args[:1]
+    if mode == "reverse" or config_bool(cfg, "streamlink_reverse_keys"):
+        return list(reversed(key_args)) if len(key_args) > 1 else key_args
+    return key_args
+
+
+def streamlink_drm_command(
+    url: str,
+    cfg: dict[str, Any],
+    decryption_keys: str = "",
+) -> list[str]:
+    key_args = streamlink_drm_key_args(decryption_keys)
+    if decryption_keys and not key_args:
+        raise RuntimeError("Streamlink-DRM benoetigt gueltige Provider-Schluessel")
+    key_args = streamlink_drm_select_keys(key_args, cfg)
+    command = [
+        str(cfg.get("streamlink_drm") or "streamlink-drm"),
+        "--stdout",
+        "--ffmpeg-ffmpeg",
+        str(cfg["ffmpeg"]),
+        "--ffmpeg-fout",
+        "mpegts",
+    ]
+    command.extend(config_arg_list(cfg, "streamlink_extra_args"))
+    if key_args:
+        command.extend(["-decryption_key", key_args[0]])
+    if len(key_args) > 1:
+        command.extend(["-decryption_key_2", key_args[1]])
+    command.extend([url, str(cfg.get("streamlink_stream") or "best")])
+    return command
 
 
 def ffmpeg_command(
@@ -3180,6 +3247,32 @@ def ffmpeg_command(
     command.extend(config_arg_list(cfg, "ffmpeg_mpegts_output_args"))
     command.append("pipe:1")
     return command
+
+
+def stream_command(
+    url: str,
+    cfg: dict[str, Any],
+    decryption_keys: str = "",
+    event_input_args: Optional[list[str]] = None,
+    override_drm_input_args: Optional[list[str]] = None,
+    override_input_args: Optional[list[str]] = None,
+    override_output_args: Optional[list[str]] = None,
+) -> tuple[str, list[str]]:
+    if stream_engine(cfg) == "streamlink_drm":
+        if event_input_args or override_drm_input_args or override_input_args or override_output_args:
+            LOG.warning(
+                "Streamlink-DRM ignoriert ffmpeg-spezifische Provider/Testargumente"
+            )
+        return "streamlink-drm", streamlink_drm_command(url, cfg, decryption_keys)
+    return "ffmpeg", ffmpeg_command(
+        url,
+        cfg,
+        decryption_keys=decryption_keys,
+        event_input_args=event_input_args,
+        override_drm_input_args=override_drm_input_args,
+        override_input_args=override_input_args,
+        override_output_args=override_output_args,
+    )
 
 
 def stop_process(process: subprocess.Popen[bytes]) -> None:
@@ -3225,7 +3318,7 @@ def stream_response_for_live_channel(
                 str(channel["license_url"]), source_cfg
             )
         validate_manifest_url(str(channel["url"]), source_cfg)
-        command = ffmpeg_command(
+        engine, command = stream_command(
             str(channel["url"]),
             source_cfg,
             decryption_keys=decryption_keys,
@@ -3234,7 +3327,8 @@ def stream_response_for_live_channel(
             ],
         )
         LOG.info(
-            "Starte ffmpeg für Live-TV-Kanal %s/%s: %s",
+            "Starte %s fuer Live-TV-Kanal %s/%s: %s",
+            engine,
             source_key,
             channel_id,
             channel.get("name"),
@@ -3269,7 +3363,7 @@ def stream_response_for_live_channel(
         finally:
             stop_process(process)
             LOG.info(
-                "ffmpeg für Live-TV-Kanal %s/%s beendet (Exit %s, %d Bytes)",
+                "Streamprozess fuer Live-TV-Kanal %s/%s beendet (Exit %s, %d Bytes)",
                 source_key,
                 channel_id,
                 process.poll(),
@@ -3340,7 +3434,7 @@ def stream_response_for_slot(
         event_input_args = [
             str(value) for value in selected_event.get("ffmpeg_input_args") or []
         ]
-        command = ffmpeg_command(
+        engine, command = stream_command(
             str(selected_event["url"]),
             source_cfg,
             decryption_keys=decryption_keys,
@@ -3368,7 +3462,8 @@ def stream_response_for_slot(
                 len(event_input_args),
             )
         LOG.info(
-            "Starte ffmpeg für Quelle %s, Slot %d (%s): %s",
+            "Starte %s fuer Quelle %s, Slot %d (%s): %s",
+            engine,
             source_key,
             slot_id,
             selected_mode,
@@ -3514,7 +3609,7 @@ def stream_response_for_slot(
                         cutoff_timer.cancel()
                     stop_process(active_process)
                     LOG.info(
-                        "ffmpeg für Quelle %s, Slot %d beendet "
+                        "Streamprozess fuer Quelle %s, Slot %d beendet "
                         "(%s, Exit %s, %d Bytes)",
                         source_key,
                         slot_id,
@@ -3529,7 +3624,7 @@ def stream_response_for_slot(
                     if no_data_restarts < max_no_data_retries:
                         no_data_restarts += 1
                         LOG.warning(
-                            "ffmpeg fuer Quelle %s, Slot %d lieferte keine Daten "
+                            "Streamprozess fuer Quelle %s, Slot %d lieferte keine Daten "
                             "(%s, Exit %s); Neustart %d/%d",
                             source_key,
                             slot_id,
@@ -3566,7 +3661,7 @@ def stream_response_for_slot(
                             return
                         continue
                     LOG.warning(
-                        "ffmpeg fuer Quelle %s, Slot %d lieferte keine Daten "
+                        "Streamprozess fuer Quelle %s, Slot %d lieferte keine Daten "
                         "(%s, Exit %s); keine weiteren Neustarts",
                         source_key,
                         slot_id,
@@ -3652,7 +3747,7 @@ def ffmpeg_debug_response(
 
     event_input_args = [str(value) for value in event.get("ffmpeg_input_args") or []]
     stream_url = str(event["url"])
-    command = ffmpeg_command(
+    engine, command = stream_command(
         stream_url,
         source_cfg,
         decryption_keys=decryption_keys,
@@ -3693,13 +3788,15 @@ def ffmpeg_debug_response(
         effective_mpegts_args.extend(["-mpegts_flags", mpegts_flags])
     effective_mpegts_args.extend(config_arg_list(source_cfg, "ffmpeg_mpegts_output_args"))
     effective_mpegts_args.append("pipe:1")
+    if engine == "streamlink-drm":
+        effective_mpegts_args = ["--ffmpeg-fout", "mpegts"]
 
     body = f"""<!doctype html>
 <html lang="de">
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>ffmpeg Slot {slot_id}</title>
+  <title>Stream Slot {slot_id}</title>
   {UI_THEME_INIT}
   <style>
     {UI_THEME_CSS}
@@ -3718,7 +3815,7 @@ def ffmpeg_debug_response(
 <body>
   {UI_THEME_TOGGLE}
   <p><a href="/">Zurueck zur Uebersicht</a></p>
-  <h1>ffmpeg Slot {html.escape(str(slot_id))}</h1>
+  <h1>Stream Slot {html.escape(str(slot_id))}</h1>
   <p><strong>{html.escape(str(event.get("title") or "Event"))}</strong><br>
      <span class="meta">Quelle: {html.escape(str(source_cfg.get("source_name") or source_key))} · Modus: {html.escape(str(mode))}</span></p>
   <p>{license_status}</p>
@@ -3743,6 +3840,12 @@ def ffmpeg_debug_response(
   <pre>{html.escape(command_text)}</pre>
 
   <h2>Aktive Argumente</h2>
+  <p class="meta">Engine: <code>{html.escape(engine)}</code></p>
+  <p class="meta">Streamlink-DRM: <code>{html.escape(str(source_cfg.get("streamlink_drm") or "-"))}</code></p>
+  <p class="meta">Streamlink Stream: <code>{html.escape(str(source_cfg.get("streamlink_stream") or "-"))}</code></p>
+  <p class="meta">Streamlink Extra: <code>{html.escape(args_or_dash(config_arg_list(source_cfg, "streamlink_extra_args")))}</code></p>
+  <p class="meta">Streamlink Key Mode: <code>{html.escape(str(source_cfg.get("streamlink_key_mode") or "all"))}</code></p>
+  <p class="meta">Streamlink Reverse Keys: <code>{html.escape(str(config_bool(source_cfg, "streamlink_reverse_keys")))}</code></p>
   <p class="meta">Provider-Input: <code>{html.escape(args_or_dash(event_input_args))}</code></p>
   <p class="meta">Config Base: <code>{html.escape(args_or_dash(config_arg_list(source_cfg, "ffmpeg_base_args")))}</code></p>
   <p class="meta">Config Reconnect: <code>{html.escape(args_or_dash(effective_reconnect_args))}</code></p>

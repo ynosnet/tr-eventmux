@@ -105,6 +105,88 @@ class FfmpegCommandTests(unittest.TestCase):
 
         self.assertEqual(command[1:4], ["-nostdin", "-loglevel", "fatal"])
 
+    def test_streamlink_drm_command_uses_two_provider_keys(self):
+        keys = (
+            "00" * 16 + "=" + "11" * 16 + ":"
+            + "22" * 16 + "=" + "33" * 16
+        )
+        command = app.streamlink_drm_command(
+            "https://example.invalid/manifest.mpd",
+            self.config(
+                streamlink_drm="streamlink-drm",
+                streamlink_stream="best",
+                streamlink_extra_args=["--stream-segment-threads", "2"],
+            ),
+            decryption_keys=keys,
+        )
+
+        self.assertEqual(command[0], "streamlink-drm")
+        self.assertIn("--stdout", command)
+        self.assertIn("--ffmpeg-fout", command)
+        self.assertIn("mpegts", command)
+        self.assertIn("--stream-segment-threads", command)
+        self.assertIn("-decryption_key", command)
+        self.assertIn("11" * 16, command)
+        self.assertNotIn("00" * 16 + ":" + "11" * 16, command)
+        self.assertIn("-decryption_key_2", command)
+        self.assertIn("33" * 16, command)
+        self.assertNotIn("22" * 16 + ":" + "33" * 16, command)
+        self.assertEqual(command[-2:], ["https://example.invalid/manifest.mpd", "best"])
+
+    def test_stream_command_selects_streamlink_drm_engine(self):
+        engine, command = app.stream_command(
+            "https://example.invalid/manifest.mpd",
+            self.config(stream_engine="streamlink_drm", streamlink_drm="streamlink-drm"),
+            decryption_keys="00" * 16 + "=" + "11" * 16,
+        )
+
+        self.assertEqual(engine, "streamlink-drm")
+        self.assertEqual(command[0], "streamlink-drm")
+
+    def test_streamlink_drm_command_can_reverse_provider_keys(self):
+        keys = (
+            "00" * 16 + "=" + "11" * 16 + ":"
+            + "22" * 16 + "=" + "33" * 16
+        )
+        command = app.streamlink_drm_command(
+            "https://example.invalid/manifest.mpd",
+            self.config(streamlink_drm="streamlink-drm", streamlink_reverse_keys=True),
+            decryption_keys=keys,
+        )
+
+        self.assertLess(command.index("33" * 16), command.index("11" * 16))
+
+    def test_streamlink_drm_command_can_use_first_key_for_both_tracks(self):
+        keys = (
+            "00" * 16 + "=" + "11" * 16 + ":"
+            + "22" * 16 + "=" + "33" * 16
+        )
+        command = app.streamlink_drm_command(
+            "https://example.invalid/manifest.mpd",
+            self.config(streamlink_drm="streamlink-drm", streamlink_key_mode="first"),
+            decryption_keys=keys,
+        )
+
+        self.assertIn("-decryption_key", command)
+        self.assertIn("11" * 16, command)
+        self.assertNotIn("-decryption_key_2", command)
+        self.assertNotIn("33" * 16, command)
+
+    def test_mask_streamlink_drm_command_hides_provider_keys(self):
+        command = [
+            "streamlink-drm",
+            "-decryption_key",
+            "11" * 16,
+            "-decryption_key_2",
+            "33" * 16,
+        ]
+
+        masked = app.mask_ffmpeg_command(command)
+
+        self.assertIn("<masked key(s)>", masked)
+        self.assertNotIn("11" * 16, masked)
+        self.assertNotIn("33" * 16, masked)
+
 
 class FfmpegInstallerTests(unittest.TestCase):
     def test_architecture_tokens_cover_common_linux_names(self):

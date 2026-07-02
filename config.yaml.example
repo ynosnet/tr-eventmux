@@ -22,39 +22,18 @@ sources:
     date_format: "auto"
     title_split: "first_dash"
     idle_replay_enabled: false
-    ffmpeg_base_args:
-      - "-loglevel"
-      - "warning"
-    ffmpeg_reconnect: false
-    ffmpeg_drm_input_args:
-      - "-fflags"
-      - "+genpts+igndts"
-    ffmpeg_map_args:
-      - "-map"
-      - "0:v:0"
-      - "-map"
-      - "0:a:0"
-    ffmpeg_codec_args:
-      - "-c:v"
-      - "copy"
-      - "-c:a"
-      - "mp2"
-      - "-b:a"
-      - "192k"
-      - "-ar"
-      - "48000"
-      - "-ac"
-      - "2"
-    ffmpeg_extra_output_args: []
-    ffmpeg_drm_output_args: []
-    ffmpeg_drm_mpegts_flags: ""
-    ffmpeg_mpegts_output_args:
-      - "-muxdelay"
-      - "0"
-      - "-muxpreload"
-      - "0"
-      - "-f"
-      - "mpegts"
+    # Optional for providers where ffmpeg's DASH demuxer has timestamp issues.
+    # Requires streamlink-drm in the Docker image.
+    stream_engine: "streamlink_drm"
+    streamlink_stream: "best"
+    # all: pass all returned keys, first/second: pass only one key, reverse:
+    # pass all keys in reverse order. Useful when Streamlink's pipe order does
+    # not match the provider response.
+    streamlink_key_mode: "all"
+    # Some providers return keys in an order that does not match Streamlink's
+    # internal video/audio pipe order. Enable this per source if video works
+    # but audio stays silent.
+    streamlink_reverse_keys: false
 
   - key: "provider2"
     name: "Provider 2"
@@ -139,6 +118,12 @@ exclude_keywords: []
 
 # ffmpeg configuration for MPD/DASH -> MPEG-TS toward TVHeadend.
 # The Docker build installs ffmpeg-multikey to /opt/ffmpeg/ffmpeg.
+stream_engine: "ffmpeg"
+streamlink_drm: "/usr/local/bin/streamlink-drm"
+streamlink_stream: "best"
+streamlink_extra_args: []
+streamlink_key_mode: "all"
+streamlink_reverse_keys: false
 ffmpeg: "/opt/ffmpeg/ffmpeg"
 ffmpeg_base_args:
   - "-hide_banner"
