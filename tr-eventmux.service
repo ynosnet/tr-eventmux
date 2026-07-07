@@ -1,0 +1,19 @@
+[Unit]
+Description=TR-EventMux
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+WorkingDirectory=/opt/tr-eventmux
+Environment=TVH_EVENTS_CONFIG=/opt/tr-eventmux/config.yaml
+Environment=TVH_EVENTS_STATE=/opt/tr-eventmux/data/state.json
+Environment=TVH_EVENTS_XMLTV=/opt/tr-eventmux/data/xmltv.xml
+Environment=FFMPEG_PATH=/opt/ffmpeg/ffmpeg
+ExecStart=/opt/tr-eventmux/venv/bin/uvicorn app:app --host 0.0.0.0 --port 8787
+Restart=always
+RestartSec=5
+User=tr-eventmux
+Group=tr-eventmux
+
+[Install]
+WantedBy=multi-user.target

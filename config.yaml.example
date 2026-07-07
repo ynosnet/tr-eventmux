@@ -1,0 +1,228 @@
+# Hostname or IP address that TVHeadend can reach.
+# If TVHeadend also runs in Docker, this is usually the Docker service name,
+# host.docker.internal, or the reachable host/LAN address.
+host_for_playlist: "tr-eventmux"
+port: 8787
+# Alternatively provide the complete public base URL:
+# public_base_url: "http://tr-eventmux:8787"
+
+# One or more independent Telerising/Event M3U sources.
+# key must be unique. {slot} is replaced by the fixed slot number, {source}
+# can optionally be used for the source key.
+# Slot logos use logo_key, not channel_number_start. Without logo_key, sources
+# use provider1, provider2, ... by their order in this list.
+sources:
+  - key: "provider1"
+    name: "Provider 1"
+    source_m3u: "http://telerising.example.invalid:5000/api/provider1/file/channels.m3u"
+    slots: 6
+    channel_number_start: 901
+    logo_key: "provider1"
+    channel_name_template: "Provider 1 Event {slot}"
+    channel_id_template: "provider1.event{slot}"
+    group_title: "Provider 1 Events"
+    event_group_filter: "Events"
+    date_format: "auto"
+    title_split: "first_dash"
+    idle_replay_enabled: false
+    # Optional for providers where ffmpeg's DASH demuxer has timestamp issues.
+    # Requires streamlink-drm in the Docker image.
+    stream_engine: "streamlink_drm"
+    streamlink_stream: "best"
+    # all: pass all returned keys, first/second: pass only one key, reverse:
+    # pass all keys in reverse order. Useful when Streamlink's pipe order does
+    # not match the provider response.
+    streamlink_key_mode: "all"
+    # Some providers return keys in an order that does not match Streamlink's
+    # internal video/audio pipe order. Enable this per source if video works
+    # but audio stays silent.
+    streamlink_reverse_keys: false
+
+  - key: "provider2"
+    name: "Provider 2"
+    source_m3u: "http://telerising.example.invalid:5000/api/provider2/file/channels.m3u"
+    slots: 10
+    channel_number_start: 911
+    logo_key: "provider2"
+    channel_name_template: "Provider 2 Event {slot}"
+    channel_id_template: "provider2.event{slot}"
+    group_title: "Provider 2 Events"
+    # Empty means: accept all group-title values.
+    event_group_filter: ""
+    date_format: "mm/dd"
+    title_split: "none"
+    ffmpeg_base_args:
+      - "-hide_banner"
+      - "-nostdin"
+      - "-loglevel"
+      - "error"
+    ffmpeg_drm_input_args:
+      - "-fflags"
+      - "+genpts+igndts"
+      - "-avioflags"
+      - "direct"
+    ffmpeg_drm_output_args:
+      - "-copytb"
+      - "1"
+      - "-muxpreload"
+      - "1"
+      - "-flush_packets"
+      - "1"
+      - "-ignore_unknown"
+      - "-sn"
+      - "-dn"
+    ffmpeg_mpegts_output_args:
+      - "-muxdelay"
+      - "1"
+      - "-f"
+      - "mpegts"
+
+  - key: "provider3"
+    name: "Provider 3"
+    source_m3u: "http://telerising.example.invalid:5000/api/provider3/file/channels.m3u"
+    slots: 5
+    channel_number_start: 921
+    logo_key: "provider3"
+    channel_name_template: "Provider 3 Event {slot}"
+    channel_id_template: "provider3.event{slot}"
+    group_title: "Provider 3 Events"
+    event_group_filter: "Events"
+    date_format: "auto"
+    title_split: "none"
+    # Examples: "(Live) Channel Name Noch 14 Std. 3 Min."
+    #           "[7H15M] Match Name • Fr., 03.07.26, 16:45 Uhr"
+    live_countdown_enabled: true
+    # Makes an already available provider preview playable before EPG start.
+    allow_upcoming_stream: true
+
+timezone: "Europe/Berlin"
+# Event duration when the source does not provide a real end time.
+default_duration_minutes: 180
+# Display-only maximum programme length in XMLTV and the status-page EPG.
+# Stream playback may continue while the provider still lists the event.
+epg_max_duration_minutes: 240
+# How far back/ahead events are planned or displayed.
+lookback_minutes: 30
+lookahead_hours: 96
+# Number of recently ended events shown on the status page when nothing is live.
+past_events_display_limit: 10
+# Empty slots replay recently ended events until a live event starts.
+# Individual providers can disable this when their replay URLs are unreliable.
+idle_replay_enabled: true
+refresh_seconds: 300
+# Expose a stream this many minutes before the official event start.
+tune_early_minutes: 5
+# Keep a running stream active while the same event remains in the source M3U.
+keep_stream_while_listed: true
+
+# Optional: prefer or exclude certain events by title.
+# title_split is the global default. Sources can override it.
+# first_dash: "Title - Description", last_dash: last dash, none: do not split.
+title_split: "first_dash"
+priority_keywords: []
+exclude_keywords: []
+
+# ffmpeg configuration for MPD/DASH -> MPEG-TS toward TVHeadend.
+# The Docker build installs ffmpeg-multikey to /opt/ffmpeg/ffmpeg.
+stream_engine: "ffmpeg"
+streamlink_drm: "/usr/local/bin/streamlink-drm"
+streamlink_stream: "best"
+streamlink_extra_args: []
+streamlink_key_mode: "all"
+streamlink_reverse_keys: false
+ffmpeg: "/opt/ffmpeg/ffmpeg"
+ffmpeg_base_args:
+  - "-hide_banner"
+  - "-nostdin"
+  - "-loglevel"
+  - "warning"
+ffmpeg_user_agent: ""
+ffmpeg_reconnect: true
+ffmpeg_reconnect_args:
+  - "-reconnect"
+  - "1"
+  - "-reconnect_streamed"
+  - "1"
+  - "-reconnect_delay_max"
+  - "5"
+ffmpeg_extra_input_args: []
+ffmpeg_extra_output_args: []
+# Extra input options for provider DASH streams parsed from Telerising pipe:// items.
+ffmpeg_drm_input_args:
+  - "-fflags"
+  - "+genpts+nobuffer"
+  - "-avioflags"
+  - "direct"
+ffmpeg_map_args:
+  - "-map"
+  - "0:v:0"
+  - "-map"
+  - "0:a?"
+ffmpeg_codec_args:
+  - "-c"
+  - "copy"
+ffmpeg_drm_output_args:
+  - "-copytb"
+  - "1"
+  - "-muxpreload"
+  - "0"
+  - "-flush_packets"
+  - "1"
+  - "-ignore_unknown"
+  - "-sn"
+  - "-dn"
+ffmpeg_mpegts_flags: "+resend_headers"
+ffmpeg_drm_mpegts_flags: "+resend_headers+initial_discontinuity"
+# pipe:1 is appended by TR-EventMux and must not be listed here.
+ffmpeg_mpegts_output_args:
+  - "-muxdelay"
+  - "0"
+  - "-f"
+  - "mpegts"
+
+# HTTP options
+request_timeout_seconds: 25
+license_timeout_seconds: 15
+# Probe MPD manifests briefly before starting ffmpeg, so empty/HTML responses
+# are logged clearly.
+manifest_probe_enabled: true
+# warn: log and start ffmpeg anyway; block: return 502 on failed probe.
+manifest_probe_failure_mode: "warn"
+manifest_probe_attempts: 3
+manifest_probe_retry_seconds: 0.75
+manifest_probe_timeout_seconds: 8
+manifest_probe_bytes: 65536
+# If a stream fails because of an empty manifest, 401, or zero bytes, refresh
+# the source and retry the stream start.
+stream_start_attempts: 4
+stream_start_retry_seconds: 2.0
+stream_no_data_retries: 3
+stream_refresh_on_failure: true
+verify_tls: true
+source_user_agent: ""
+# license_user_agent: ""
+# license_headers: {}
+xmltv_language: "de"
+# Also write the generated guide atomically to this local path after refresh.
+# With docker-compose.yml this appears on the host as ./data/xmltv.xml.
+xmltv_output_path: "/data/xmltv.xml"
+# Optional: also send the generated guide to a Unix socket after each refresh.
+# Example for TVHeadend's XMLTV socket:
+# xmltv_socket_enabled: true
+# xmltv_socket_path: "/path/to/tvheadend/data/epggrab/xmltv.sock"
+xmltv_socket_enabled: false
+xmltv_socket_path: ""
+xmltv_socket_timeout_seconds: 10
+
+# Source mode is selected by the YAML structure; there is no mode switch.
+# The sources list above enables multi-source URLs such as:
+# /slot/provider1/1.ts
+#
+# To use the compatible single-source mode, remove the complete sources list
+# and configure these keys at the top level. Its URLs use /slot/1.ts:
+#
+# source_m3u: "http://telerising.example.invalid:5000/api/source/file/channels.m3u"
+# slots: 5
+# channel_number_start: 901
+# channel_name_prefix: "Event"
+# event_group_filter: "Events"

@@ -1,0 +1,6 @@
+[Unit]
+Description=Refresh TR-EventMux
+
+[Service]
+Type=oneshot
+ExecStart=/usr/bin/curl -fsS http://127.0.0.1:8787/refresh

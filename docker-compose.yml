@@ -1,0 +1,24 @@
+services:
+  tr-eventmux:
+    image: tr-eventmux:latest
+    build:
+      context: .
+      args:
+        FFMPEG_MULTIKEY_REPO: ${FFMPEG_MULTIKEY_REPO:-DEvmIb/ffmpeg-multikey}
+        FFMPEG_MULTIKEY_VERSION: ${FFMPEG_MULTIKEY_VERSION:-latest}
+        FFMPEG_MULTIKEY_ASSET_URL: ${FFMPEG_MULTIKEY_ASSET_URL:-}
+    container_name: tr-eventmux
+    restart: unless-stopped
+    ports:
+      - "8787:8787"
+    volumes:
+      - ./config.yaml:/config/config.yaml:ro
+      - ./data:/data
+    environment:
+      - TVH_EVENTS_CONFIG=/config/config.yaml
+      - TVH_EVENTS_STATE=/data/state.json
+      - TZ=Europe/Berlin
+    # If the source M3U runs on localhost of the Docker host, use
+    # host.docker.internal in config.yaml.
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
